@@ -1,0 +1,17 @@
+# macOS
+.DS_Store
+
+# JetBrains / IDE
+.idea/
+*.iml
+
+# Per-project config the installer generates in a CONSUMING repo — never the shipped
+# defaults (pipeline.config.defaults.sh). This must never be committed to the bundle.
+pipeline.config.sh
+
+# Runtime state the pipeline writes into a consuming repo
+.claude/dev-pipeline/
+
+# Local test sandboxes / logs
+sandbox/
+*.log
