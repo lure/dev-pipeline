@@ -50,10 +50,42 @@ PIPELINE_PLAN_GLOB="/plans/"
 # non-interactive. Pick any name that won't clash with your app's own env.
 PIPELINE_AUTO_ENV="PIPELINE_MODE"
 
+# ── Branches and merging ─────────────────────────────────────────────────────
+# Each change gets a branch named <prefix><slug>.
+PIPELINE_BRANCH_PREFIX="feat/"
+
+# How GATE 2 merges the PR: squash, merge or rebase (passed to `gh pr merge --<method>`).
+PIPELINE_MERGE_METHOD="squash"
+
+# GitHub logins allowed to merge through the pipeline, space-separated. Empty means whoever runs
+# the pipeline may merge, which suits a repo with a single maintainer. When it is set, a run by
+# anyone else ends GATE 2 with the PR marked ready for review instead of merged, and the epic
+# orchestrator refuses to start, because it merges every subtask on its own.
+PIPELINE_MERGERS=""
+
+# ── Review loop ──────────────────────────────────────────────────────────────
+# Most reviewer rounds per gate (plan review and code review count separately). At the cap the
+# stage stops and reports instead of looping, and an epic subtask reports SUBTASK_BLOCKED.
+PIPELINE_MAX_ROUNDS="10"
+
+# ── YouTrack (only for YouTrack epics) ───────────────────────────────────────
+# YouTrack uses the initiating host's existing MCP connection, with no copied credentials.
+PIPELINE_YOUTRACK_MCP_SERVER="${PIPELINE_YOUTRACK_MCP_SERVER:-youtrack}"
+PIPELINE_YOUTRACK_MCP_CONFIG="${PIPELINE_YOUTRACK_MCP_CONFIG:-}"
+PIPELINE_YOUTRACK_TIMEOUT="${PIPELINE_YOUTRACK_TIMEOUT:-120}"
+# The fields that mark a subtask done, as JSON, for example '{"Stage":"Done"}'. When it is empty,
+# the epic stage reads the project's field schema and asks before it freezes the manifest.
+PIPELINE_YOUTRACK_DONE_FIELDS="${PIPELINE_YOUTRACK_DONE_FIELDS:-}"
+
 # ── Reviewer (headless) ──────────────────────────────────────────────────────
+# Auto = the other host: Codex implements / Claude reviews, or vice versa.
+PIPELINE_REVIEWER="${PIPELINE_REVIEWER:-auto}"
 # Empty model = let the reviewer CLI use its own configured default (safest: model ids
 # change often, and a stale pin fails the whole gate). Pin it per repo if you care.
+# REVIEWER_MODEL is the legacy Codex-only pin; never send it to Claude.
 REVIEWER_MODEL=""
+CODEX_REVIEWER_MODEL="${CODEX_REVIEWER_MODEL:-}"
+CLAUDE_REVIEWER_MODEL="${CLAUDE_REVIEWER_MODEL:-}"
 REVIEWER_EFFORT="high"
 # danger-full-access is REQUIRED for the default codex reviewer, not laziness:
 #   * code review must reach the network to post via `gh` (workspace-write blocks network);
@@ -61,25 +93,35 @@ REVIEWER_EFFORT="high"
 #     worktree — outside the writable workspace.
 # Narrow this only if you also move the verdict path inside the workdir and grant network.
 REVIEWER_SANDBOX="danger-full-access"
+CLAUDE_REVIEWER_PERMISSION_MODE="bypassPermissions"
 REVIEWER_TIMEOUT="3600"    # seconds; 0 disables the cap
 
 # Optional file appended verbatim to BOTH reviewer prompts as load-bearing repo rules.
 REVIEW_RULES_FILE="$ROOT/.claude/REVIEW_RULES.md"
 
 # reviewer_invoke <prompt-file> — run the headless reviewer with the prompt on stdin, in
-# the current directory. Default: OpenAI `codex exec`. Override the whole function in your
+# the current directory. Default: the opposite CLI. Override the whole function in your
 # repo config to swap reviewers (another model, or Claude headless — anything that takes a
 # prompt, reads the repo, and can call `gh`).
 #
-# NOTE: the reviewer must be able to WRITE its verdict file (plan review) and CALL gh
-# (code review), so it needs at least workspace-write; the plan-review verdict path lives
-# under the repo's own .claude/ runtime dir precisely so workspace-write suffices.
+# Both CLIs need network access and permission to write the verdict in the main repo.
 reviewer_invoke() {
-  codex exec \
-    ${REVIEWER_MODEL:+-m "$REVIEWER_MODEL"} \
-    ${REVIEWER_EFFORT:+-c model_reasoning_effort="$REVIEWER_EFFORT"} \
-    -s "$REVIEWER_SANDBOX" \
-    - < "$1"
+  local model
+  case "$PIPELINE_REVIEWER_CLI" in
+    codex)
+      model="${CODEX_REVIEWER_MODEL:-$REVIEWER_MODEL}"
+      codex exec \
+        ${model:+-m "$model"} \
+        ${REVIEWER_EFFORT:+-c "model_reasoning_effort=\"$REVIEWER_EFFORT\""} \
+        -c 'approval_policy="never"' -s "$REVIEWER_SANDBOX" - < "$1"
+      ;;
+    claude)
+      claude -p --no-session-persistence \
+        --permission-mode "$CLAUDE_REVIEWER_PERMISSION_MODE" --add-dir "$ROOT" \
+        ${CLAUDE_REVIEWER_MODEL:+--model "$CLAUDE_REVIEWER_MODEL"} \
+        ${REVIEWER_EFFORT:+--effort "$REVIEWER_EFFORT"} < "$1"
+      ;;
+  esac
 }
 
 # ── Worktree lifecycle hooks (project-defined) ───────────────────────────────

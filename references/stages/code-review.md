@@ -5,10 +5,14 @@ fixes. Optional argument: a PR-number override (`$ARGUMENTS`).
 
 ## 1. Resolve context
 ```bash
-ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
-for c in "${PIPELINE_SKILL_DIR:-}" "$HOME/.claude/skills/dev-pipeline" "$ROOT/.claude/skills/dev-pipeline"; do
+ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" || exit 2
+SKILL_DIR=""
+for c in "${PIPELINE_SKILL_DIR:-}" "$HOME/.agents/skills/dev-pipeline" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/dev-pipeline" "$HOME/.claude/skills/dev-pipeline" \
+  "$ROOT/.agents/skills/dev-pipeline" "$ROOT/.codex/skills/dev-pipeline" "$ROOT/.claude/skills/dev-pipeline"; do
   [ -n "$c" ] && [ -f "$c/references/scripts/pipeline-lib.sh" ] && { SKILL_DIR="$c"; break; }
 done
+[ -n "$SKILL_DIR" ] || { echo "dev-pipeline bundle not found" >&2; exit 2; }
 source "$SKILL_DIR/references/scripts/pipeline-lib.sh" && pipeline_init
 STATE="$SKILL_DIR/references/scripts/state.sh"
 SDIR="$(bash "$STATE" dir)"
@@ -75,10 +79,25 @@ bash "$STATE" set codeRounds=<n>
 ## 5. Iterate
 Re-run step 2 on the updated diff until the marker (step 3) is `APPROVE`. Stop only when it approves,
 or when you and the user have deliberately rejected the remaining comments with rationale.
-**Hard cap: 5 rounds.** At the cap, stop and report (in autonomous mode print `SUBTASK_BLOCKED`)
-rather than looping forever.
+**Hard cap: `$PIPELINE_MAX_ROUNDS` rounds.** At the cap, stop and report (in autonomous mode print
+`SUBTASK_BLOCKED`) rather than looping forever.
 
 ## 6. Merge gate (GATE 2)
+**Who may merge.** Check this first, in every mode:
+```bash
+pipeline_may_merge && MAY_MERGE=1 || MAY_MERGE=0
+```
+With `MAY_MERGE=0`, this repo reserves merging for `$PIPELINE_MERGERS` and you are not one of them.
+Do the base sync below, then mark the PR ready and stop there:
+```bash
+gh pr ready "$PR"
+bash "$STATE" set phase=awaiting-merge
+```
+Tell the user the PR is ready for review by `$PIPELINE_MERGERS`. Do not merge, and do not offer or
+suggest merging. Keep the worktree, because review comments may still need fixes; run
+`cleanup-worktree.sh` once the PR has merged. Everything below about signing off and merging applies
+only when `MAY_MERGE=1`.
+
 **Autonomous mode:** if the autonomous-mode env var is set (an epic-orchestrated subtask — see
 `run-epic.sh`), there is **no user to ask**; reviewer APPROVE (step 3) is the gate. Proceed straight
 to the sync + merge + cleanup below without stopping.
@@ -101,7 +120,7 @@ git push
 On sign-off (interactive) **or** immediately (auto mode, after APPROVE):
 ```bash
 gh pr ready "$PR"
-gh pr merge "$PR" --squash
+gh pr merge "$PR" --"$PIPELINE_MERGE_METHOD"
 bash "$SKILL_DIR/references/scripts/cleanup-worktree.sh"
 bash "$STATE" set phase=done
 ```

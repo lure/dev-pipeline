@@ -64,13 +64,61 @@ pipeline_load_config() {
   PIPELINE_WORKTREE_ROOT="$(pipeline_abspath "$PIPELINE_WORKTREE_ROOT")"
   PIPELINE_APP_DIR="$ROOT${PIPELINE_APP_SUBDIR:+/$PIPELINE_APP_SUBDIR}"
   export PIPELINE_CONFIG_FILE
+  export PIPELINE_YOUTRACK_MCP_SERVER PIPELINE_YOUTRACK_MCP_CONFIG PIPELINE_YOUTRACK_TIMEOUT
 }
 
-# Standard preamble: resolve ROOT then load config. Every script calls this.
+# Resolve the host before loading config so overrides can branch on it. A driver may
+# set it explicitly; native session IDs identify interactive hosts without a wrapper.
+pipeline_resolve_host() {
+  if [ -z "${PIPELINE_HOST:-}" ]; then
+    if [ -n "${CODEX_THREAD_ID:-}" ]; then PIPELINE_HOST=codex
+    elif [ -n "${CLAUDE_CODE_SESSION_ID:-}${CLAUDECODE:-}" ]; then PIPELINE_HOST=claude
+    else PIPELINE_HOST=claude; fi   # legacy standalone scripts
+  fi
+  case "$PIPELINE_HOST" in codex|claude) ;; *) pipeline_die "PIPELINE_HOST must be codex or claude" ;; esac
+  export PIPELINE_HOST
+}
+
+# Driver-assigned IDs take precedence over the host's native ID. Never generate one
+# here: successive shell calls must keep using the same state directory.
+pipeline_session_id() {
+  local sid="${PIPELINE_SESSION_ID:-}"
+  if [ -z "$sid" ]; then
+    case "$PIPELINE_HOST" in
+      codex) sid="${CODEX_THREAD_ID:-}" ;;
+      claude) sid="${CLAUDE_CODE_SESSION_ID:-}" ;;
+    esac
+  fi
+  [ -n "$sid" ] || pipeline_die "no session ID: export PIPELINE_SESSION_ID once and reuse it in every shell call (or use the host's native session ID)"
+  case "$sid" in *[/\\]*|.|..) pipeline_die "refusing unsafe pipeline session ID: $sid" ;; esac
+  printf '%s\n' "$sid"
+}
+
+# Standard preamble: resolve ROOT, host, then config. Every script calls this.
 pipeline_init() {
   ROOT="$(pipeline_resolve_root)" \
     || pipeline_die "not inside a git repository (cwd: $PWD) — run this from your project"
+  pipeline_resolve_host
   pipeline_load_config
+  case "$PIPELINE_REVIEWER" in
+    auto) if [ "$PIPELINE_HOST" = codex ]; then PIPELINE_REVIEWER_CLI=claude; else PIPELINE_REVIEWER_CLI=codex; fi ;;
+    codex|claude) PIPELINE_REVIEWER_CLI="$PIPELINE_REVIEWER" ;;
+    *) pipeline_die "PIPELINE_REVIEWER must be auto, codex or claude" ;;
+  esac
+  export PIPELINE_REVIEWER PIPELINE_REVIEWER_CLI
+}
+
+# ── Merge authority ──────────────────────────────────────────────────────────
+# Succeeds when the current GitHub user may merge: PIPELINE_MERGERS is empty, or it lists the
+# login `gh` is authenticated as. A failed `gh` lookup counts as "may not", so an unauthenticated
+# or misconfigured session never merges by accident.
+pipeline_may_merge() {
+  [ -z "${PIPELINE_MERGERS// /}" ] && return 0
+  local me
+  me="$(gh api user --jq .login 2>/dev/null)" || return 1
+  [ -n "$me" ] || return 1
+  case " $PIPELINE_MERGERS " in *" $me "*) return 0 ;; esac
+  return 1
 }
 
 # ── Portable timeout ─────────────────────────────────────────────────────────

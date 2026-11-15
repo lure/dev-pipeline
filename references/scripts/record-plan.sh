@@ -58,12 +58,12 @@ glob    = os.environ.get("PLAN_GLOB", "/plans/")
 runtime = os.environ.get("RUNTIME_DIR", ".claude/dev-pipeline")
 main    = os.environ.get("MAIN_ROOT") or os.getcwd()
 
-sid = (p.get("session_id") or "").strip()
+sid = (os.environ.get("PIPELINE_SESSION_ID") or p.get("session_id") or "").strip()
 fp  = (p.get("tool_input") or {}).get("file_path") or ""
-if not sid or "/" in sid or "\\" in sid or glob not in fp:
+if not sid or sid in (".", "..") or "/" in sid or "\\" in sid or glob not in fp:
     sys.exit(0)
 
-fp = os.path.abspath(fp)
+fp = os.path.realpath(fp)
 
 def toplevel_of(path):
     """Git toplevel CONTAINING the plan file. When planning happens inside a linked

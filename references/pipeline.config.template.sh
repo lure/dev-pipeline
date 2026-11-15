@@ -18,19 +18,38 @@ PIPELINE_APP_SUBDIR=""                     # sub-dir the app lives in ("" = repo
 # A path FRAGMENT: any Write/Edit to a path containing it is recorded as this session's plan.
 PIPELINE_PLAN_GLOB="/plans/"
 
+# ── Branches and merging ─────────────────────────────────────────────────────
+# PIPELINE_BRANCH_PREFIX="feat/"             # each change gets <prefix><slug>
+# PIPELINE_MERGE_METHOD="squash"             # squash | merge | rebase
+# PIPELINE_MERGERS=""                        # GitHub logins allowed to merge; empty = whoever runs it
+
+# ── Review loop ──────────────────────────────────────────────────────────────
+# PIPELINE_MAX_ROUNDS="10"                   # reviewer rounds per gate before the stage stops
+
+# ── YouTrack (optional; GitHub manifests do not need these) ──────────────────
+# Existing MCP connection name, shared by interactive and headless runs.
+# PIPELINE_YOUTRACK_MCP_SERVER="youtrack"
+# PIPELINE_YOUTRACK_MCP_CONFIG="/absolute/path/to/existing/mcp.json"
+# PIPELINE_YOUTRACK_TIMEOUT="120"
+# PIPELINE_YOUTRACK_DONE_FIELDS='{"Stage":"Done"}'   # fields that mark a subtask done
+
 # ── Reviewer ─────────────────────────────────────────────────────────────────
-# Leave REVIEWER_MODEL empty to use your reviewer CLI's own default (recommended — pinned
-# model ids go stale and a stale pin fails the gate). Set it if you need a specific model.
-# REVIEWER_MODEL="gpt-5.1-codex-max"
+# Auto reverses roles with the host. Explicit selection or a custom function wins.
+# PIPELINE_REVIEWER="auto"   # auto | codex | claude
+# Leave model pins empty to use each CLI's own default.
+# CODEX_REVIEWER_MODEL=""
+# CLAUDE_REVIEWER_MODEL=""
+# REVIEWER_MODEL remains supported as a legacy Codex-only pin.
 REVIEWER_EFFORT="high"
 # Needs network (code review posts via `gh`) AND writes outside the worktree (the plan-review
 # verdict lands in the main repo's session dir), so workspace-write is not enough for codex.
 REVIEWER_SANDBOX="danger-full-access"
+# CLAUDE_REVIEWER_PERMISSION_MODE="bypassPermissions"
 REVIEWER_TIMEOUT="3600"                    # seconds; 0 disables the cap
 
 # Swap reviewers wholesale by redefining this. It gets ONE argument: a prompt file.
 # reviewer_invoke() {
-#   claude -p --dangerously-skip-permissions < "$1"
+#   my-reviewer-cli < "$1"
 # }
 
 # ── Worktree lifecycle ───────────────────────────────────────────────────────

@@ -23,12 +23,15 @@ cd "$WORKDIR"
 
 # Export the reviewer hook + its knobs so the timeout wrapper's subshell can see them.
 export -f reviewer_invoke
-export REVIEWER_MODEL REVIEWER_EFFORT REVIEWER_SANDBOX
+export ROOT PIPELINE_REVIEWER_CLI REVIEWER_MODEL REVIEWER_EFFORT REVIEWER_SANDBOX
+export CODEX_REVIEWER_MODEL CLAUDE_REVIEWER_MODEL CLAUDE_REVIEWER_PERMISSION_MODE
 
 # Bound each headless run (default from config; 0 disables). High-effort reviews of a large
 # diff can read widely before posting — give them room. Always launch this script via a
 # background/detached wrapper in the caller so the harness's own foreground cap doesn't kill
 # the run before this limit. Exit 124 means the cap fired (the whole reviewer tree is dead).
 pipeline_run_timeout "${REVIEWER_TIMEOUT:-0}" \
-  bash -c 'reviewer_invoke "$1"' pipeline-reviewer "$PROMPT_FILE"
+  env -u PIPELINE_SESSION_ID -u CODEX_THREAD_ID -u CLAUDE_CODE_SESSION_ID -u CLAUDECODE \
+    -u CODEX_CI PIPELINE_HOST="$PIPELINE_REVIEWER_CLI" \
+    bash -c 'reviewer_invoke "$1"' pipeline-reviewer "$PROMPT_FILE"
 exit $?

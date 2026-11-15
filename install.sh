@@ -12,8 +12,9 @@
 # Both steps are idempotent. `init` never overwrites an existing pipeline.config.sh.
 set -euo pipefail
 
-SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 GLOBAL_DIR="${CLAUDE_SKILLS_DIR:-$HOME/.claude/skills}/dev-pipeline"
+CODEX_DIR="${CODEX_SKILLS_DIR:-$HOME/.agents/skills}/dev-pipeline"
 SKILL_NAME="dev-pipeline"
 
 die()  { echo "install: $*" >&2; exit 1; }
@@ -43,7 +44,7 @@ cmd_global() {
   fi
   mkdir -p "$GLOBAL_DIR"
   # Copy the bundle, excluding editor cruft and any local runtime droppings.
-  ( cd "$SKILL_DIR" && tar --exclude='.git' --exclude='.idea' --exclude='.DS_Store' \
+  ( cd "$SKILL_DIR" && tar --exclude='.git' --exclude='.idea' --exclude='.DS_Store' --exclude='__pycache__' \
       --exclude='pipeline.config.sh' -cf - . ) | ( cd "$GLOBAL_DIR" && tar -xf - )
   chmod +x "$GLOBAL_DIR/references/scripts/"*.sh "$GLOBAL_DIR/install.sh"
   ok "bundle copied"
@@ -51,6 +52,21 @@ cmd_global() {
   echo
   echo "next, in each repo you want to use it in:"
   echo "  cd /path/to/repo && bash $GLOBAL_DIR/install.sh init"
+}
+
+# Codex discovers the same bundle through its user skills directory. Refuse to replace
+# another installation; keeping one bundle prevents host modes from drifting apart.
+cmd_codex() {
+  mkdir -p "$(dirname "$CODEX_DIR")"
+  if [ -L "$CODEX_DIR" ] && [ "$(cd "$CODEX_DIR" && pwd -P)" = "$SKILL_DIR" ]; then
+    ok "Codex skill already linked: $CODEX_DIR"
+  elif [ -e "$CODEX_DIR" ] || [ -L "$CODEX_DIR" ]; then
+    die "$CODEX_DIR already exists and points elsewhere; refusing to overwrite it"
+  else
+    ln -s "$SKILL_DIR" "$CODEX_DIR"
+    ok "Codex skill linked: $CODEX_DIR -> $SKILL_DIR"
+  fi
+  note "start a new Codex session to refresh skill discovery; invoke with \$dev-pipeline"
 }
 
 # ── init ─────────────────────────────────────────────────────────────────────
@@ -169,7 +185,7 @@ cmd_doctor() {
   local rc=0
   echo "dev-pipeline doctor"
   echo "  bundle: $SKILL_DIR"
-  for c in git python3 gh claude; do
+  for c in git python3 gh claude codex; do
     if command -v "$c" >/dev/null 2>&1; then ok "$c: $(command -v "$c")"
     else echo "  ✗ $c NOT on PATH"; rc=1; fi
   done
@@ -186,9 +202,15 @@ cmd_doctor() {
     [ -f "$ROOT/.claude/REVIEW_RULES.md" ] \
       && ok "review rules: .claude/REVIEW_RULES.md" \
       || note "no .claude/REVIEW_RULES.md (optional)"
-    grep -q record-plan.sh "$ROOT/.claude/settings.json" 2>/dev/null \
-      && ok "plan hook registered in .claude/settings.json" \
-      || { echo "  ✗ plan hook missing — run: install.sh init"; rc=1; }
+    source "$SKILL_DIR/references/scripts/pipeline-lib.sh"
+    pipeline_resolve_host
+    if [ "$PIPELINE_HOST" = claude ]; then
+      grep -q record-plan.sh "$ROOT/.claude/settings.json" 2>/dev/null \
+        && ok "plan hook registered in .claude/settings.json" \
+        || { echo "  ✗ plan hook missing — run: install.sh init"; rc=1; }
+    else
+      note "Codex records planPath explicitly with state.sh; no Claude plan hook required"
+    fi
     # Load the real config exactly the way the scripts do, and report what it resolved to —
     # this is the check that catches a config that fails to source at all.
     ( source "$SKILL_DIR/references/scripts/pipeline-lib.sh" && pipeline_init \
@@ -196,7 +218,12 @@ cmd_doctor() {
       && echo "  · worktree root: $PIPELINE_WORKTREE_ROOT" \
       && echo "  · app dir:       $PIPELINE_APP_DIR" \
       && echo "  · plan glob:     $PIPELINE_PLAN_GLOB" \
-      && echo "  · reviewer knobs: model=${REVIEWER_MODEL:-<cli default>} effort=${REVIEWER_EFFORT:-} sandbox=${REVIEWER_SANDBOX:-} timeout=${REVIEWER_TIMEOUT:-0}s" \
+      && echo "  · host/reviewer: $PIPELINE_HOST / $PIPELINE_REVIEWER_CLI (unless reviewer_invoke is overridden)" \
+      && echo "  · reviewer knobs: model=${REVIEWER_MODEL:-<cli default>} effort=${REVIEWER_EFFORT:-} sandbox=${REVIEWER_SANDBOX:-} timeout=${REVIEWER_TIMEOUT:-0}s max rounds=$PIPELINE_MAX_ROUNDS" \
+      && echo "  · branches:      ${PIPELINE_BRANCH_PREFIX}<slug>, merged with --$PIPELINE_MERGE_METHOD" \
+      && { pipeline_may_merge \
+             && echo "  · merging:       you may merge (PIPELINE_MERGERS=${PIPELINE_MERGERS:-<anyone>})" \
+             || echo "  · merging:       reserved for ${PIPELINE_MERGERS}; GATE 2 stops at a PR ready for review"; } \
       ) || { echo "  ✗ config failed to load — see the error above"; rc=1; }
   else
     note "not in a git repo — skipping repo checks"
@@ -210,6 +237,8 @@ dev-pipeline installer
 
   install.sh global [--force]   Install/update the bundle at ~/.claude/skills/dev-pipeline.
                                 Run once per machine. Never touches your repos.
+  install.sh codex              Link this bundle into ~/.agents/skills/dev-pipeline for Codex.
+                                CODEX_SKILLS_DIR overrides the parent directory.
   install.sh init [namespace]   Run INSIDE a repo. Seeds .claude/pipeline.config.sh, adds the
                                 PostToolUse plan hook, writes /<namespace>:* command shims
                                 (default namespace: pipeline). Never clobbers an existing config.
@@ -217,14 +246,16 @@ dev-pipeline installer
 
 Typical first run:
   bash install.sh global
+  bash ~/.claude/skills/dev-pipeline/install.sh codex
   cd /path/to/repo && bash ~/.claude/skills/dev-pipeline/install.sh init
 EOF
 }
 
 case "${1:-}" in
   global)  shift; cmd_global "${1:-}" ;;
+  codex)   cmd_codex ;;
   init)    shift; cmd_init "${1:-pipeline}" ;;
   doctor)  cmd_doctor ;;
   ""|-h|--help|help) usage ;;
-  *) die "unknown command: $1 (try: global | init | doctor)" ;;
+  *) die "unknown command: $1 (try: global | codex | init | doctor)" ;;
 esac

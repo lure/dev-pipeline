@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # state.sh — read/update the current session's pipeline state.
 #
-# State lives in the MAIN repo at $PIPELINE_RUNTIME_DIR/sessions/$CLAUDE_CODE_SESSION_ID/state.json,
+# State lives in the MAIN repo at $PIPELINE_RUNTIME_DIR/sessions/<session-id>/state.json,
 # resolved via git's common dir so it works identically from a linked worktree.
 #
 # Usage:
@@ -16,10 +16,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/pipeline-lib.sh"
 pipeline_init
 pipeline_require python3
 
-SID="${CLAUDE_CODE_SESSION_ID:-}"
-[ -n "$SID" ] || pipeline_die "CLAUDE_CODE_SESSION_ID is not set — run this from a Claude Code session"
-# Guard against a session id that would escape the runtime dir.
-case "$SID" in *[/\\]*|.|..) pipeline_die "refusing unsafe CLAUDE_CODE_SESSION_ID: $SID" ;; esac
+SID="$(pipeline_session_id)"
 
 SDIR="$ROOT/$PIPELINE_RUNTIME_DIR/sessions/$SID"
 SF="$SDIR/state.json"

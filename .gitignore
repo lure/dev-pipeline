@@ -15,3 +15,4 @@ pipeline.config.sh
 # Local test sandboxes / logs
 sandbox/
 *.log
+__pycache__/

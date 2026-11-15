@@ -5,12 +5,16 @@ config); you orchestrate. Optional argument: a plan path (`$ARGUMENTS`).
 
 ## 1. Resolve context
 Use this preamble verbatim — it is identical in every stage and works whether the skill is installed
-globally (`~/.claude/skills/dev-pipeline`) or vendored into the repo:
+for Codex, Claude Code, or vendored into the repo:
 ```bash
-ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)"
-for c in "${PIPELINE_SKILL_DIR:-}" "$HOME/.claude/skills/dev-pipeline" "$ROOT/.claude/skills/dev-pipeline"; do
+ROOT="$(cd "$(git rev-parse --git-common-dir)/.." && pwd)" || exit 2
+SKILL_DIR=""
+for c in "${PIPELINE_SKILL_DIR:-}" "$HOME/.agents/skills/dev-pipeline" \
+  "${CODEX_HOME:-$HOME/.codex}/skills/dev-pipeline" "$HOME/.claude/skills/dev-pipeline" \
+  "$ROOT/.agents/skills/dev-pipeline" "$ROOT/.codex/skills/dev-pipeline" "$ROOT/.claude/skills/dev-pipeline"; do
   [ -n "$c" ] && [ -f "$c/references/scripts/pipeline-lib.sh" ] && { SKILL_DIR="$c"; break; }
 done
+[ -n "$SKILL_DIR" ] || { echo "dev-pipeline bundle not found" >&2; exit 2; }
 source "$SKILL_DIR/references/scripts/pipeline-lib.sh" && pipeline_init
 STATE="$SKILL_DIR/references/scripts/state.sh"
 SDIR="$(bash "$STATE" dir)"
@@ -25,8 +29,8 @@ PLAN="${ARGUMENTS:-$(bash "$STATE" get planPath)}"
 `$PLAN` is relative to the checkout that CONTAINS it (the worktree in the default loop), so resolve
 it as `$BASE/$PLAN`.
 - If `$ARGUMENTS` is non-empty, use it.
-- Else use `planPath` from **this session's** state (the `record-plan.sh` hook stamps every plan
-  write under the current session id, and the worktree-first loop also runs an explicit
+- Else use `planPath` from **this session's** state (Claude Code can record it via `record-plan.sh`;
+  both hosts run an explicit
   `state.sh set planPath=...` right after writing).
 - **If `$PLAN` is empty (this session recorded no plan): STOP. Do NOT fall back to a global "latest"
   plan — it may belong to a different session.** List recent plans matching `$PIPELINE_PLAN_GLOB`
@@ -75,8 +79,8 @@ recommendation (accept / reject + why).
 - `bash "$STATE" set planRounds=<n>`
 - Re-run step 2. Loop until the reviewer returns `"verdict":"approve"`.
 - If it keeps flagging something you deliberately reject, record the rationale and move on — do not
-  loop forever. **Hard cap: 5 rounds.** At the cap, stop and report (in autonomous mode, print
-  `SUBTASK_BLOCKED`) rather than burning reviewer runs indefinitely.
+  loop forever. **Hard cap: `$PIPELINE_MAX_ROUNDS` rounds.** At the cap, stop and report (in
+  autonomous mode, print `SUBTASK_BLOCKED`) rather than burning reviewer runs indefinitely.
 
 ## 6. Report — then keep going (NO user stop)
 The user already approved this plan at GATE 1 *before* this stage started, so there is **no user stop

@@ -18,8 +18,9 @@ STATE="$SKILL_DIR/references/scripts/state.sh"
 BRANCH="${1:-}"
 WT="${2:-}"
 # Fall back to state ONLY when no branch was passed explicitly (otherwise an explicit branch
-# must win, and its worktree path is derived from it — not state).
-if [ -z "$BRANCH" ] && [ -f "$STATE" ] && [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+# must win, and its worktree path is derived from it, not from state). With no session id at all,
+# state.sh fails and both values stay empty.
+if [ -z "$BRANCH" ] && [ -f "$STATE" ]; then
   BRANCH="$(bash "$STATE" get branch 2>/dev/null || true)"
   [ -z "$WT" ] && WT="$(bash "$STATE" get worktree 2>/dev/null || true)"
 fi

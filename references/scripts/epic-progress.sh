@@ -14,7 +14,8 @@ set -uo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/pipeline-lib.sh"
 
 EPIC="${1:?usage: epic-progress.sh <epic-number>}"
-case "$EPIC" in ''|*[!0-9]*) pipeline_die "epic must be an issue number, got: $EPIC" ;; esac
+[[ "$EPIC" =~ ^([1-9][0-9]*|[A-Z][A-Z0-9_]*-[1-9][0-9]*)$ ]] \
+  || pipeline_die "epic must be a GitHub number or full YouTrack ID"
 pipeline_init
 
 LOGDIR="$ROOT/$PIPELINE_RUNTIME_DIR/epics/epic-$EPIC"
@@ -32,7 +33,7 @@ RUN_SEG="$(awk '/start —/{buf=""} {buf=buf $0 ORS} END{printf "%s", buf}' "$EP
 
 echo "-- epic #$EPIC --------------------------------------"
 grep -aE '(start —|spawn #|merged #|already CLOSED|HALT —|DONE —)' <<<"$RUN_SEG" \
-  | sed 's/^\[epic #[0-9]*\] //' || true
+  | sed 's/^\[epic #[A-Z0-9_-]*\] //' || true
 
 if grep -qaE 'DONE —' <<<"$RUN_SEG"; then
   echo "-- status: COMPLETE  all subtasks merged"
@@ -52,13 +53,13 @@ if [ -f "$PIDF" ] && ! kill -0 "$(cat "$PIDF" 2>/dev/null || echo 0)" 2>/dev/nul
   exit 3
 fi
 
-active_line="$(grep -aE 'spawn #[0-9]+' <<<"$RUN_SEG" | tail -1 || true)"
+active_line="$(grep -aE 'spawn #[A-Z0-9_-]+' <<<"$RUN_SEG" | tail -1 || true)"
 if [ -z "$active_line" ]; then
   echo "-- status: RUNNING (no subtask spawned yet)"
   exit 0
 fi
 
-issue="$(sed -nE 's/.*spawn #([0-9]+).*/\1/p' <<<"$active_line")"
+issue="$(sed -nE 's/.*spawn #([A-Z0-9_-]+).*/\1/p' <<<"$active_line")"
 sid="$(sed -nE 's/.*sid=([0-9a-fA-F-]+).*/\1/p' <<<"$active_line")"
 
 if grep -qaE "merged #$issue" <<<"$RUN_SEG"; then
