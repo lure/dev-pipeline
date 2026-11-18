@@ -41,10 +41,13 @@ sed -e "s|{{PR}}|$PR|g" -e "s|{{BRANCH}}|$BRANCH|g" -e "s|{{BASE}}|$PIPELINE_BAS
 if [ -n "${REVIEW_RULES_FILE:-}" ] && [ -f "$REVIEW_RULES_FILE" ]; then
   printf '\n\n---\n# PROJECT REVIEW RULES\n\n' >> "$PROMPT"; cat "$REVIEW_RULES_FILE" >> "$PROMPT"
 fi
-bash "$SKILL_DIR/references/scripts/run-reviewer.sh" "$WT" "$PROMPT" 2>&1 | tee "$SDIR/code-review.log"
+# The reviewer's transcript runs to hundreds of KB per round, so it goes to the log only.
+# Printing it would fill this session's context with text nobody needs to read.
+bash "$SKILL_DIR/references/scripts/run-reviewer.sh" "$WT" "$PROMPT" > "$SDIR/code-review.log" 2>&1
+echo "reviewer rc=$?"
 ```
 The reviewer posts inline comments to the PR via `gh` and submits a review with state APPROVE or
-REQUEST_CHANGES.
+REQUEST_CHANGES. Read those comments from GitHub (step 4), not from the log.
 
 > **Headless caveat:** as in spec-review — if this session is headless, never end your turn while the
 > reviewer runs. Background it and block with foreground waits until the log marker appears.

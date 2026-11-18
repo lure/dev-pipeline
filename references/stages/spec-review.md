@@ -54,7 +54,10 @@ sed -e "s|{{PLAN_PATH}}|$BASE/$PLAN|g" -e "s|{{OUTPUT_PATH}}|$OUT|g" -e "s|{{REP
 if [ -n "${REVIEW_RULES_FILE:-}" ] && [ -f "$REVIEW_RULES_FILE" ]; then
   printf '\n\n---\n# PROJECT REVIEW RULES\n\n' >> "$PROMPT"; cat "$REVIEW_RULES_FILE" >> "$PROMPT"
 fi
-bash "$SKILL_DIR/references/scripts/run-reviewer.sh" "$BASE" "$PROMPT" 2>&1 | tee "$SDIR/plan-review.log"
+# The reviewer's transcript runs to hundreds of KB per round, so it goes to the log only.
+# Printing it would fill this session's context with text nobody needs to read.
+bash "$SKILL_DIR/references/scripts/run-reviewer.sh" "$BASE" "$PROMPT" > "$SDIR/plan-review.log" 2>&1
+echo "reviewer rc=$?"
 bash "$STATE" set phase=plan-review
 ```
 (`$BASE` is the worktree when one exists — that is where the plan and code live — else the main root.)
@@ -65,9 +68,10 @@ bash "$STATE" set phase=plan-review
 > `references/prompts/subtask.md`.
 
 ## 3. Parse the verdict
-Read `$OUT`. If it is missing or not valid JSON, **STOP** and show the reviewer's output/log — the
-gate failed; do not silently proceed. Common causes worth checking in the log before re-running: the
-reviewer CLI is unauthenticated, hit a usage limit, or was killed by `REVIEWER_TIMEOUT`.
+Read `$OUT`. If it is missing or not valid JSON, **STOP** and show
+`tail -n 50 "$SDIR/plan-review.log"` (never the whole log): the gate failed; do not silently
+proceed. Common causes worth checking in the log before re-running: the reviewer CLI is
+unauthenticated, hit a usage limit, or was killed by `REVIEWER_TIMEOUT`.
 
 ## 4. Present findings (your judgment, not blind agreement)
 Verify each finding against the real code/plan before agreeing (apply the `receiving-code-review`
